@@ -153,7 +153,7 @@ class LLMRayActor:
 
             class RayWorkerWrapper(RayWorkerWrapperPath.RayWorkerWrapper):
                 def __init__(self, *args, **kwargs) -> None:
-                    kwargs["worker_module_name"] = "open_instruct.vllm_utils2"
+                    kwargs["worker_module_name"] = "vllm_utils2"
                     kwargs["worker_class_name"] = "WorkerWrap"
                     super().__init__(*args, **kwargs)
 
