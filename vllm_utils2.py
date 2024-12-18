@@ -137,6 +137,10 @@ class LLMRayActor:
 
         self.use_gpu_executor = kwargs["tensor_parallel_size"] == 1
 
+        if vllm.__version__ > "0.6.4.post1":
+            # https://github.com/vllm-project/vllm/pull/10555
+            kwargs["worker_cls"] = "vllm_utils2.WorkerWrap"
+
         # See https://github.com/vllm-project/vllm/blob/main/vllm/executor/gpu_executor.py
         if self.use_gpu_executor:
 
@@ -153,8 +157,9 @@ class LLMRayActor:
 
             class RayWorkerWrapper(RayWorkerWrapperPath.RayWorkerWrapper):
                 def __init__(self, *args, **kwargs) -> None:
-                    kwargs["worker_module_name"] = "vllm_utils2"
-                    kwargs["worker_class_name"] = "WorkerWrap"
+                    if vllm.__version__ <= "0.6.4.post1":
+                        kwargs["worker_module_name"] = "vllm_utils2"
+                        kwargs["worker_class_name"] = "WorkerWrap"
                     super().__init__(*args, **kwargs)
 
             RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
