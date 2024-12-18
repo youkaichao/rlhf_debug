@@ -21,7 +21,7 @@ from transformers import (
 import ray
 import torch
 import torch.distributed
-from open_instruct.vllm_utils2 import create_vllm_engines, init_process_group
+from vllm_utils2 import create_vllm_engines, init_process_group
 
 
 if __name__ == "__main__":
