@@ -28,8 +28,8 @@ if __name__ == "__main__":
     vllm_tensor_parallel_size = 2
     vllm_num_engines = 1
     vllm_sync_backend = "nccl"
-    model_name_or_path = "allenai/Llama-3.1-Tulu-3-8B-DPO"
-    model_name_or_path2 = "allenai/Llama-3.1-Tulu-3-8B"
+    model_name_or_path = "meta-llama/Meta-Llama-3-8B"
+    model_name_or_path2 = "meta-llama/Meta-Llama-3-8B"
     # llm = LLMRayActor.remote("meta-llama/Llama-3.1-8B-Instruct", tensor_parallel_size=2)
     # output = ray.get(llm.generate.remote("San Franciso is a"))
     # print(f"output: {output}")
