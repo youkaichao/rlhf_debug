@@ -34,7 +34,7 @@ from torch.distributed.distributed_c10d import (
     rendezvous,
 )
 from vllm.worker.worker import Worker
-
+from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
 
 # Copy from pytorch to allow creating multiple main groups.
 # https://github.com/pytorch/pytorch/blob/main/torch/distributed/distributed_c10d.py
@@ -89,24 +89,32 @@ def init_process_group(
 
     return pg
 
+def stateless_init_process_group(master_address,
+            master_port,
+            rank,
+            world_size,
+            device):
+    from vllm.distributed.utils import StatelessProcessGroup
+    pg = StatelessProcessGroup.create(host=master_address, port=master_port, rank=rank, world_size=world_size)
+    pynccl = PyNcclCommunicator(pg, device=device)
+    return pynccl
 
 class WorkerWrap(Worker):
-    def init_process_group(self, master_address, master_port, rank_offset, world_size, group_name, backend="nccl"):
+    def init_process_group(self, master_address, master_port, rank_offset, world_size):
         """Init torch process group for model weights update"""
-        assert torch.distributed.is_initialized(), "default torch process group must be initialized"
-        assert group_name != "", "group name must not be empty"
 
-        rank = torch.distributed.get_rank() + rank_offset
-        self._model_update_group = init_process_group(
-            backend=backend,
-            init_method=f"tcp://{master_address}:{master_port}",
-            world_size=world_size,
-            rank=rank,
-            group_name=group_name,
+        from vllm.distributed.parallel_state import get_world_group
+        rank = get_world_group().rank_in_group + rank_offset
+        self._model_update_group = stateless_init_process_group(
+            master_address,
+            master_port,
+            rank,
+            world_size,
+            self.device,
         )
         print(
             f"init_process_group: master_address={master_address}, master_port={master_port}, ",
-            f"rank={rank}, world_size={world_size}, group_name={group_name}",
+            f"rank={rank}, world_size={world_size}",
         )
 
     def update_weight(self, name, dtype, shape, empty_cache=False):
@@ -117,7 +125,7 @@ class WorkerWrap(Worker):
 
         assert dtype == self.model_config.dtype, f"mismatch dtype: src {dtype}, dst {self.model_config.dtype}"
         weight = torch.empty(shape, dtype=dtype, device="cuda")
-        torch.distributed.broadcast(weight, 0, group=self._model_update_group)
+        self._model_update_group.broadcast(weight, src=0, stream=torch.cuda.current_stream())
 
         self.model_runner.model.load_weights(weights=[(name, weight)])
 
@@ -169,14 +177,14 @@ class LLMRayActor:
     def generate(self, *args, **kwargs):
         return self.llm.generate(*args, **kwargs)
 
-    def init_process_group(self, master_address, master_port, rank_offset, world_size, group_name, backend):
+    def init_process_group(self, master_address, master_port, rank_offset, world_size):
         if self.use_gpu_executor:
             return self.llm.llm_engine.model_executor.driver_worker.init_process_group(
-                master_address, master_port, rank_offset, world_size, group_name, backend
+                master_address, master_port, rank_offset, world_size
             )
         else:
             return self.llm.llm_engine.model_executor._run_workers(
-                "init_process_group", master_address, master_port, rank_offset, world_size, group_name, backend
+                "init_process_group", master_address, master_port, rank_offset, world_size
             )
 
     def update_weight(self, name, dtype, shape, empty_cache=False):

@@ -21,7 +21,8 @@ from transformers import (
 import ray
 import torch
 import torch.distributed
-from vllm_utils2 import create_vllm_engines, init_process_group
+from vllm_utils2 import create_vllm_engines, stateless_init_process_group
+from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
 
 
 if __name__ == "__main__":
@@ -66,22 +67,20 @@ if __name__ == "__main__":
             master_port,
             i * vllm_tensor_parallel_size + 1,
             world_size,
-            "openrlhf",
-            backend=backend,
         )
         for i, engine in enumerate(vllm_engines)
     ]
-    model_update_group = init_process_group(
-        backend=backend,
-        init_method=f"tcp://{master_address}:{master_port}",
-        world_size=world_size,
+    model_update_group = stateless_init_process_group(
+        master_address,
+        master_port,
         rank=0,
-        group_name="openrlhf",
+        world_size=world_size,
+        device=3,
     )
     ray.get(refs)
-    torch.set_default_device("cuda:7")
+    torch.set_default_device("cuda:3")
     model = AutoModelForCausalLM.from_pretrained(model_name_or_path2, torch_dtype=torch.bfloat16)
-    model = model.to("cuda:7")
+    model = model.to("cuda:3")
     def broadcast_to_vllm():
         # avoid OOM
         torch.cuda.empty_cache()
@@ -97,7 +96,7 @@ if __name__ == "__main__":
                 for engine in vllm_engines
             ]
             refss.extend(refs)
-            torch.distributed.broadcast(param.data, 0, group=model_update_group)
+            model_update_group.broadcast(param.data, src=0, stream=torch.cuda.current_stream())
         ray.get(refss)
 
     broadcast_to_vllm()
